@@ -1,0 +1,36 @@
+[build-system]
+requires = ["hatchling", "hatch-polylith-bricks"]
+build-backend = "hatchling.build"
+
+[project]
+name = "aereo-herbie"
+version = "0.1.0"
+description = "aereo plugin for NWP model data discovery and reading via Herbie GRIB2 index files"
+readme = "README.md"
+authors = [{ name = "Fran Dorr" }]
+
+requires-python = ">=3.12"
+
+dependencies = [
+    "aereo",
+    "herbie-data>=2024.1.0",
+    "xarray>=2024.1.0",
+]
+
+[project.urls]
+Homepage = "https://github.com/frandorr/aereo-herbie"
+Issues = "https://github.com/frandorr/aereo-herbie/issues"
+Repository = "https://github.com/frandorr/aereo-herbie"
+
+[project.entry-points."aereo.plugins"]
+search_herbie = "aereo.search_herbie.core:search_herbie"
+read_herbie = "aereo.read_herbie.core:read_herbie"
+
+[tool.hatch]
+build.dev-mode-dirs = [ "../../components", "../../bases", "../../development", "." ]
+build.hooks.polylith-bricks = {}
+build.targets.wheel.packages = ["aereo"]
+
+[tool.polylith]
+bricks."../../components/aereo/search_herbie" = "aereo/search_herbie"
+bricks."../../components/aereo/read_herbie" = "aereo/read_herbie"
