@@ -37,9 +37,6 @@ managed = true
 [tool.uv.workspace]
 members = ["projects/*"]
 
-[tool.uv.sources]
-aereo = { path = "../aereo/projects/aereo", editable = true }
-
 [tool.hatch.metadata]
 allow-direct-references = true
 

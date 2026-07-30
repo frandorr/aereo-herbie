@@ -19,7 +19,7 @@ members = [
 [[package]]
 name = "aereo"
 version = "1.2.1"
-source = { editable = "../aereo/projects/aereo" }
+source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "attrs" },
     { name = "earthaccess" },
@@ -50,48 +50,10 @@ dependencies = [
     { name = "utm" },
     { name = "xarray" },
 ]
-
-[package.metadata]
-requires-dist = [
-    { name = "attrs", specifier = ">=25.4" },
-    { name = "boto3", marker = "extra == 'all'", specifier = ">=1.34" },
-    { name = "boto3", marker = "extra == 'serverless'", specifier = ">=1.34" },
-    { name = "botocore", marker = "extra == 'serverless'", specifier = ">=1.34" },
-    { name = "cartopy", marker = "extra == 'all'", specifier = ">=0.25" },
-    { name = "cartopy", marker = "extra == 'viz'", specifier = ">=0.25" },
-    { name = "earthaccess", specifier = ">=0.18" },
-    { name = "filelock", specifier = ">=3.13" },
-    { name = "geopandas", specifier = ">=1.1.2" },
-    { name = "hydra-core", specifier = ">=1.3.2" },
-    { name = "joblib", specifier = ">=1.3" },
-    { name = "majortom-eg" },
-    { name = "matplotlib", specifier = ">=3.10.8" },
-    { name = "numpy" },
-    { name = "obstore", specifier = ">=0.9.3" },
-    { name = "odc-geo", specifier = ">=0.5.1" },
-    { name = "odc-stac", specifier = ">=0.5.2" },
-    { name = "omegaconf", specifier = ">=2.3" },
-    { name = "pandas", specifier = ">=3.0.1" },
-    { name = "pandera", extras = ["geopandas"], specifier = ">=0.24" },
-    { name = "planetary-computer", marker = "extra == 'all'", specifier = ">=1" },
-    { name = "planetary-computer", marker = "extra == 'pc'", specifier = ">=1" },
-    { name = "pyarrow", specifier = ">=23.0.1" },
-    { name = "pydantic", specifier = ">=2.12.5" },
-    { name = "pyproj", specifier = ">=3.7.1" },
-    { name = "pyresample", marker = "extra == 'all'", specifier = ">=1.28" },
-    { name = "pyresample", marker = "extra == 'swath'", specifier = ">=1.28" },
-    { name = "pystac", specifier = ">=1" },
-    { name = "pystac-client", specifier = ">=0.8" },
-    { name = "rasterio", specifier = ">=1.3" },
-    { name = "rich", specifier = ">=13" },
-    { name = "rioxarray", specifier = ">=0.22" },
-    { name = "shapely", specifier = ">=2.1.2" },
-    { name = "structlog", specifier = ">=25.5" },
-    { name = "typer", specifier = ">=0.12" },
-    { name = "utm", specifier = ">=0.8.1" },
-    { name = "xarray", specifier = ">=2026.4" },
+sdist = { url = "https://files.pythonhosted.org/packages/05/95/3d550c55d3e6699880014e914e54cb2c9955d5c65f45ef4ca47f1d3496bd/aereo-1.2.1.tar.gz", hash = "sha256:e693ea9c1e7614e44551ca3d7822da5f32b89d445f425f8f55b8fd3880ba26bb", size = 81957, upload-time = "2026-07-21T16:18:54.045Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/44/b0/468d98d64ca017b6735aeacad93d862819791725e1220e29d76bdda4315a/aereo-1.2.1-py3-none-any.whl", hash = "sha256:77c3e3d475e31891f79469fb698b95cabec5f83d7841948d7a51ebb55233c45b", size = 102897, upload-time = "2026-07-21T16:18:52.537Z" },
 ]
-provides-extras = ["all", "pc", "serverless", "swath", "viz"]
 
 [[package]]
 name = "aereo-herbie"
@@ -105,7 +67,7 @@ dependencies = [
 
 [package.metadata]
 requires-dist = [
-    { name = "aereo", editable = "../aereo/projects/aereo" },
+    { name = "aereo" },
     { name = "herbie-data", specifier = ">=2024.1.0" },
     { name = "xarray", specifier = ">=2024.1.0" },
 ]
@@ -129,7 +91,7 @@ dev = [
 
 [package.metadata]
 requires-dist = [
-    { name = "aereo", editable = "../aereo/projects/aereo" },
+    { name = "aereo" },
     { name = "herbie-data", specifier = ">=2026.3.0" },
 ]
 
