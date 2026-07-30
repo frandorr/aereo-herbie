@@ -21,6 +21,7 @@ HTTP range requests to extract individual variables.
 from __future__ import annotations
 
 import re
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, time, timedelta, timezone
 from pathlib import Path
 from typing import Any, Mapping, Sequence, cast
@@ -29,7 +30,7 @@ import geopandas as gpd
 import pandas as pd
 from aereo.interfaces import build_collection_asset_filters, empty_asset_result
 from aereo.interfaces.utils import normalize_geometry_input
-from herbie import Herbie
+from herbie import FastHerbie
 from aereo.schemas import AssetSchema
 from pandera.typing.geopandas import GeoDataFrame
 from pydantic import ConfigDict, validate_call
@@ -65,6 +66,39 @@ def _run_datetimes(
     return runs
 
 
+def _fetch_inventories(
+    herbies: list[Any], search: str | None, max_threads: int
+) -> list[tuple[Any, pd.DataFrame]]:
+    """Fetch inventories (``.idx`` download + parse) concurrently.
+
+    Returns ``(Herbie, inventory)`` pairs in input order; runs whose
+    inventory fails or is empty are dropped with a warning. Note that
+    ``FastHerbie.inventory()`` itself is sequential, hence this helper.
+    """
+
+    def _inventory(H: Any) -> tuple[Any, pd.DataFrame] | None:
+        try:
+            df = H.inventory(search)
+        except Exception as e:
+            logger.warning(
+                "Inventory fetch failed",
+                model=str(getattr(H, "model", "?")),
+                run=str(getattr(H, "date", "?")),
+                error=str(e),
+            )
+            return None
+        if df is None or len(df) == 0:
+            return None
+        return H, df
+
+    if len(herbies) < 2:
+        results = [_inventory(H) for H in herbies]
+    else:
+        with ThreadPoolExecutor(max_workers=min(len(herbies), max_threads)) as exe:
+            results = list(exe.map(_inventory, herbies))
+    return [r for r in results if r is not None]
+
+
 @validate_call(config=ConfigDict(arbitrary_types_allowed=True))
 def search_herbie(
     collections: Mapping[str, Sequence[str]] | Sequence[str] | None,
@@ -77,6 +111,7 @@ def search_herbie(
     search_regex: str | None = None,
     priority: Sequence[str] | None = None,
     herbie_kwargs: dict[str, Any] | None = None,
+    max_threads: int = 50,
 ) -> GeoDataFrame[AssetSchema]:
     """Search NWP model GRIB2 inventories via Herbie and return assets.
 
@@ -102,6 +137,8 @@ def search_herbie(
         priority: Optional source priority list forwarded to Herbie
             (e.g. ``["aws", "nomads"]``).
         herbie_kwargs: Extra keyword arguments forwarded to ``Herbie()``.
+        max_threads: Maximum threads for creating the per-run Herbie objects
+            and fetching their inventories.
 
     Returns:
         A GeoDataFrame where each row is a GRIB message (variable/level) of a
@@ -147,45 +184,36 @@ def search_herbie(
             [r for r in (model_regex, search_regex) if r]
         )
 
-        for run in runs:
-            try:
-                # Herbie expects tz-naive datetimes.
-                H = Herbie(
-                    run.replace(tzinfo=None),
-                    model=model,
-                    product=product,
-                    fxx=fxx,
-                    priority=priority,
-                    **extra_kwargs,
-                )
-            except Exception as e:
-                logger.warning(
-                    "Herbie initialization failed",
-                    model=model,
-                    run=run.isoformat(),
-                    error=str(e),
-                )
-                continue
+        try:
+            # Herbie expects tz-naive datetimes. FastHerbie resolves all
+            # per-run files (existence checks) concurrently.
+            FH = FastHerbie(
+                [r.replace(tzinfo=None) for r in runs],
+                model=model,
+                product=product,
+                fxx=fxx,
+                priority=priority,
+                max_threads=max_threads,
+                **extra_kwargs,
+            )
+        except Exception as e:
+            logger.warning(
+                "FastHerbie initialization failed",
+                model=model,
+                error=str(e),
+            )
+            continue
 
-            if H.grib is None or H.idx is None:
-                logger.warning(
-                    "No GRIB/IDX found", model=model, run=run.isoformat()
-                )
-                continue
+        valid = [H for H in FH.file_exists if H.idx is not None]
+        if len(valid) < len(FH.objects):
+            logger.warning(
+                "No GRIB/IDX found for some runs",
+                model=model,
+                n_missing=len(FH.objects) - len(valid),
+            )
 
-            try:
-                inventory = H.inventory(combined_regex)
-            except Exception as e:
-                logger.warning(
-                    "Inventory fetch failed",
-                    model=model,
-                    run=run.isoformat(),
-                    error=str(e),
-                )
-                continue
-
-            if inventory is None or len(inventory) == 0:
-                continue
+        for H, inventory in _fetch_inventories(valid, combined_regex, max_threads):
+            run = pd.Timestamp(H.date).tz_localize("UTC")
 
             inventory = inventory.copy()
             inventory["reference_time"] = pd.to_datetime(

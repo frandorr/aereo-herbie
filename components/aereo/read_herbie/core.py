@@ -15,6 +15,7 @@ concatenated along the ``time`` dimension.
 from __future__ import annotations
 
 import re
+from concurrent.futures import ThreadPoolExecutor
 from typing import TYPE_CHECKING, Any, Iterable
 
 import numpy as np
@@ -187,6 +188,7 @@ def read_herbie(
     remove_grib: bool = True,
     herbie_kwargs: dict[str, Any] | None = None,
     xarray_kwargs: dict[str, Any] | None = None,
+    max_threads: int = 8,
 ) -> xr.Dataset:
     """Read Herbie search-result assets for *task* into an ``xr.Dataset``.
 
@@ -202,6 +204,8 @@ def read_herbie(
         herbie_kwargs: Extra keyword arguments forwarded to ``Herbie()``.
         xarray_kwargs: Extra keyword arguments forwarded to ``H.xarray()``
             (e.g. ``backend_kwargs`` for cfgrib).
+        max_threads: Maximum threads for reading model-run groups
+            concurrently (subset downloads are I/O-bound).
 
     Returns:
         An ``xr.Dataset`` with the requested variables, optionally cropped to
@@ -213,20 +217,26 @@ def read_herbie(
     if task.assets is None or len(task.assets) == 0:
         raise ValueError("read_herbie requires a task with non-empty assets.")
 
-    datasets: list[xr.Dataset] = []
-    for key, group in _group_assets(task.assets):
+    groups = list(_group_assets(task.assets))
+
+    def _read_safe(key: dict[str, Any], group: GeoDataFrame) -> xr.Dataset | None:
         try:
-            datasets.append(
-                _read_group(
-                    key,
-                    group,
-                    remove_grib=remove_grib,
-                    herbie_kwargs=herbie_kwargs or {},
-                    xarray_kwargs=xarray_kwargs or {},
-                )
+            return _read_group(
+                key,
+                group,
+                remove_grib=remove_grib,
+                herbie_kwargs=herbie_kwargs or {},
+                xarray_kwargs=xarray_kwargs or {},
             )
         except Exception as e:
             logger.error("Failed to read GRIB group", key=key, error=str(e))
+            return None
+
+    if len(groups) < 2:
+        datasets = [ds for ds in (_read_safe(*g) for g in groups) if ds is not None]
+    else:
+        with ThreadPoolExecutor(max_workers=min(len(groups), max_threads)) as exe:
+            datasets = [ds for ds in exe.map(lambda g: _read_safe(*g), groups) if ds is not None]
 
     if not datasets:
         raise ValueError("read_herbie could not read any asset group.")

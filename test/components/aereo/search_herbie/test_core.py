@@ -41,13 +41,24 @@ def _inventory_df() -> pd.DataFrame:
     )
 
 
-def _mock_herbie(inventory: pd.DataFrame) -> MagicMock:
+def _mock_herbie(inventory: pd.DataFrame, date: datetime) -> MagicMock:
     H = MagicMock()
     H.grib = "https://noaa-hrrr-bdp-pds.s3.amazonaws.com/hrrr.20240101/conus/hrrr.t00z.wrfsfcf00.grib2"
     H.idx = H.grib + ".idx"
     H.product = "sfc"
+    H.date = date
     H.inventory.return_value = inventory
     return H
+
+
+def _mock_fast_herbie(mock_cls: MagicMock, dates: list[datetime], inventory: pd.DataFrame) -> list[MagicMock]:
+    """Make the FastHerbie patch return one mock Herbie per run date."""
+    herbies = [_mock_herbie(inventory, d) for d in dates]
+    FH = MagicMock()
+    FH.objects = herbies
+    FH.file_exists = herbies
+    mock_cls.return_value = FH
+    return herbies
 
 
 def test_combine_regexes():
@@ -83,9 +94,9 @@ def test_search_herbie_empty_collections():
     assert "href" in gdf.columns
 
 
-@patch("aereo.search_herbie.core.Herbie")
-def test_search_herbie_results(mock_herbie_cls):
-    mock_herbie_cls.return_value = _mock_herbie(_inventory_df())
+@patch("aereo.search_herbie.core.FastHerbie")
+def test_search_herbie_results(mock_fh_cls):
+    _mock_fast_herbie(mock_fh_cls, [datetime(2024, 1, 1)], _inventory_df())
 
     gdf = search_herbie(
         collections=["hrrr"],
@@ -109,12 +120,18 @@ def test_search_herbie_results(mock_herbie_cls):
     assert gdf["id"].is_unique
 
 
-@patch("aereo.search_herbie.core.Herbie")
-def test_search_herbie_midnight_end_is_day_inclusive(mock_herbie_cls):
+@patch("aereo.search_herbie.core.FastHerbie")
+def test_search_herbie_midnight_end_is_day_inclusive(mock_fh_cls):
     """A date-only (midnight) end covers the whole day, mirroring STAC
     date semantics: with 6-hourly runs, a single-date window queries the
     00/06/12/18Z runs but not the next day's 00Z."""
-    mock_herbie_cls.return_value = _mock_herbie(_inventory_df())
+    dates = [
+        datetime(2024, 1, 1, 0),
+        datetime(2024, 1, 1, 6),
+        datetime(2024, 1, 1, 12),
+        datetime(2024, 1, 1, 18),
+    ]
+    _mock_fast_herbie(mock_fh_cls, dates, _inventory_df())
 
     gdf = search_herbie(
         collections=["gfs"],
@@ -124,20 +141,14 @@ def test_search_herbie_midnight_end_is_day_inclusive(mock_herbie_cls):
         run_interval_hours=6,
     )
 
-    assert mock_herbie_cls.call_count == 4
-    queried_runs = sorted(call.args[0] for call in mock_herbie_cls.call_args_list)
-    assert queried_runs == [
-        datetime(2024, 1, 1, 0),
-        datetime(2024, 1, 1, 6),
-        datetime(2024, 1, 1, 12),
-        datetime(2024, 1, 1, 18),
-    ]
+    mock_fh_cls.assert_called_once()
+    assert mock_fh_cls.call_args.args[0] == dates
     assert len(gdf) == 8  # 4 runs x 2 inventory rows
 
 
-@patch("aereo.search_herbie.core.Herbie")
-def test_search_herbie_passes_regex_to_inventory(mock_herbie_cls):
-    mock_herbie_cls.return_value = _mock_herbie(_inventory_df())
+@patch("aereo.search_herbie.core.FastHerbie")
+def test_search_herbie_passes_regex_to_inventory(mock_fh_cls):
+    herbies = _mock_fast_herbie(mock_fh_cls, [datetime(2024, 1, 1)], _inventory_df())
 
     search_herbie(
         collections={"hrrr": [":TMP:2 m above ground"]},
@@ -146,12 +157,12 @@ def test_search_herbie_passes_regex_to_inventory(mock_herbie_cls):
         end_datetime=datetime(2024, 1, 1, tzinfo=timezone.utc),
     )
 
-    mock_herbie_cls.return_value.inventory.assert_called_with(":TMP:2 m above ground")
+    herbies[0].inventory.assert_called_with(":TMP:2 m above ground")
 
 
-@patch("aereo.search_herbie.core.Herbie")
-def test_search_herbie_herbie_failure_returns_empty(mock_herbie_cls):
-    mock_herbie_cls.side_effect = RuntimeError("no data")
+@patch("aereo.search_herbie.core.FastHerbie")
+def test_search_herbie_fastherbie_failure_returns_empty(mock_fh_cls):
+    mock_fh_cls.side_effect = RuntimeError("no data")
 
     gdf = search_herbie(
         collections=["hrrr"],
@@ -164,9 +175,26 @@ def test_search_herbie_herbie_failure_returns_empty(mock_herbie_cls):
     assert gdf.empty
 
 
-@patch("aereo.search_herbie.core.Herbie")
-def test_search_herbie_populates_domain_geometry(mock_herbie_cls):
-    mock_herbie_cls.return_value = _mock_herbie(_inventory_df())
+@patch("aereo.search_herbie.core.FastHerbie")
+def test_search_herbie_missing_files_returns_empty(mock_fh_cls):
+    FH = MagicMock()
+    FH.objects = [MagicMock()]
+    FH.file_exists = []
+    mock_fh_cls.return_value = FH
+
+    gdf = search_herbie(
+        collections=["hrrr"],
+        intersects=None,
+        start_datetime=datetime(2024, 1, 1, tzinfo=timezone.utc),
+        end_datetime=datetime(2024, 1, 1, tzinfo=timezone.utc),
+    )
+
+    assert gdf.empty
+
+
+@patch("aereo.search_herbie.core.FastHerbie")
+def test_search_herbie_populates_domain_geometry(mock_fh_cls):
+    _mock_fast_herbie(mock_fh_cls, [datetime(2024, 1, 1)], _inventory_df())
 
     gdf = search_herbie(
         collections=["hrrr"],
@@ -180,9 +208,8 @@ def test_search_herbie_populates_domain_geometry(mock_herbie_cls):
     assert gdf.geometry.iloc[0].equals(HRRR_CONUS_DOMAIN)
 
 
-@patch("aereo.search_herbie.core.Herbie")
-def test_search_herbie_skips_model_outside_aoi(mock_herbie_cls):
-    mock_herbie_cls.return_value = _mock_herbie(_inventory_df())
+@patch("aereo.search_herbie.core.FastHerbie")
+def test_search_herbie_skips_model_outside_aoi(mock_fh_cls):
     europe = box(-10, 35, 40, 70)
 
     gdf = search_herbie(
@@ -193,12 +220,12 @@ def test_search_herbie_skips_model_outside_aoi(mock_herbie_cls):
     )
 
     assert gdf.empty
-    mock_herbie_cls.assert_not_called()
+    mock_fh_cls.assert_not_called()
 
 
-@patch("aereo.search_herbie.core.Herbie")
-def test_search_herbie_unknown_model_has_null_geometry(mock_herbie_cls):
-    mock_herbie_cls.return_value = _mock_herbie(_inventory_df())
+@patch("aereo.search_herbie.core.FastHerbie")
+def test_search_herbie_unknown_model_has_null_geometry(mock_fh_cls):
+    _mock_fast_herbie(mock_fh_cls, [datetime(2024, 1, 1)], _inventory_df())
     assert "mymodel" not in MODEL_DOMAINS
 
     gdf = search_herbie(
