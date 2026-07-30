@@ -196,3 +196,6 @@ docs/.obsidian/graph.json
 
 # AER public-release hygiene
 .venv/
+
+# Agent tooling (local only)
+.agents/
