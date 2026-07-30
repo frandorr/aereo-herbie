@@ -79,7 +79,7 @@ gdf = search_herbie(
 | `start_datetime` / `end_datetime` | yes | — | Model-run temporal window |
 | `intersects` | no | `None` | AOI; skips models whose domain does not intersect it |
 | `product` | no | `None` | Herbie product (e.g. `"sfc"` for HRRR) |
-| `fxx` | no | `0` | Forecast lead time in hours |
+| `fxx` | no | `0` | Forecast lead time in hours; int or list of ints (e.g. `[6, 12, 24]`) to cover several forecast horizons per run in one search |
 | `run_interval_hours` | no | `24` | Spacing between queried model runs |
 | `search_regex` | no | `None` | Extra regex applied to `search_this` |
 | `priority` | no | `None` | Source priority forwarded to Herbie (e.g. `["aws", "nomads"]`) |

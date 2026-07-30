@@ -41,12 +41,13 @@ def _inventory_df() -> pd.DataFrame:
     )
 
 
-def _mock_herbie(inventory: pd.DataFrame, date: datetime) -> MagicMock:
+def _mock_herbie(inventory: pd.DataFrame, date: datetime, fxx: int = 0) -> MagicMock:
     H = MagicMock()
     H.grib = "https://noaa-hrrr-bdp-pds.s3.amazonaws.com/hrrr.20240101/conus/hrrr.t00z.wrfsfcf00.grib2"
     H.idx = H.grib + ".idx"
     H.product = "sfc"
     H.date = date
+    H.fxx = fxx
     H.inventory.return_value = inventory
     return H
 
@@ -144,6 +145,48 @@ def test_search_herbie_midnight_end_is_day_inclusive(mock_fh_cls):
     mock_fh_cls.assert_called_once()
     assert mock_fh_cls.call_args.args[0] == dates
     assert len(gdf) == 8  # 4 runs x 2 inventory rows
+
+
+@patch("aereo.search_herbie.core.FastHerbie")
+def test_search_herbie_multiple_fxx(mock_fh_cls):
+    """A list of lead times searches every (run, fxx) pair in one call, and
+    each asset carries its own lead time."""
+    herbies = [
+        _mock_herbie(_inventory_df(), datetime(2024, 1, 1), fxx=6),
+        _mock_herbie(_inventory_df(), datetime(2024, 1, 1), fxx=24),
+    ]
+    FH = MagicMock()
+    FH.objects = herbies
+    FH.file_exists = herbies
+    mock_fh_cls.return_value = FH
+
+    gdf = search_herbie(
+        collections=["gfs"],
+        intersects=None,
+        start_datetime=datetime(2024, 1, 1, tzinfo=timezone.utc),
+        end_datetime=datetime(2024, 1, 1, tzinfo=timezone.utc),
+        fxx=[24, 6],  # unsorted on purpose; should be normalized
+    )
+
+    assert mock_fh_cls.call_args.kwargs["fxx"] == [6, 24]
+    assert len(gdf) == 4  # 2 lead times x 2 inventory rows
+    assert sorted(gdf["fxx"].unique()) == [6, 24]
+    assert gdf["id"].is_unique
+    assert "-f06-" in gdf["id"].iloc[0]
+
+
+@patch("aereo.search_herbie.core.FastHerbie")
+def test_search_herbie_empty_fxx_list_returns_empty(mock_fh_cls):
+    gdf = search_herbie(
+        collections=["gfs"],
+        intersects=None,
+        start_datetime=datetime(2024, 1, 1, tzinfo=timezone.utc),
+        end_datetime=datetime(2024, 1, 1, tzinfo=timezone.utc),
+        fxx=[],
+    )
+
+    assert gdf.empty
+    mock_fh_cls.assert_not_called()
 
 
 @patch("aereo.search_herbie.core.FastHerbie")

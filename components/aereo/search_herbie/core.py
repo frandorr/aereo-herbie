@@ -106,7 +106,7 @@ def search_herbie(
     start_datetime: datetime | None,
     end_datetime: datetime | None,
     product: str | None = None,
-    fxx: int = 0,
+    fxx: int | Sequence[int] = 0,
     run_interval_hours: int = 24,
     search_regex: str | None = None,
     priority: Sequence[str] | None = None,
@@ -130,7 +130,10 @@ def search_herbie(
             the whole day, mirroring STAC date semantics.
         product: Herbie product (e.g. ``"sfc"`` for HRRR). ``None`` uses the
             model's default product.
-        fxx: Forecast lead time in hours.
+        fxx: Forecast lead time(s) in hours. A single int (e.g. ``6``) or a
+            list of lead times (e.g. ``[6, 12, 24]``) to search several
+            forecast horizons per run in one call. Each returned asset
+            carries its own lead time in the ``fxx`` column.
         run_interval_hours: Spacing between model runs to query.
         search_regex: Extra regex applied to ``search_this`` on top of the
             per-collection asset filters.
@@ -166,6 +169,10 @@ def search_herbie(
         end_datetime += timedelta(days=1) - timedelta(microseconds=1)
 
     runs = _run_datetimes(start_datetime, end_datetime, run_interval_hours)
+    fxx_list = sorted({int(f) for f in ([fxx] if isinstance(fxx, int) else fxx)})
+    if not fxx_list:
+        return empty_asset_result()
+
     extra_kwargs = dict(herbie_kwargs or {})
     aoi = normalize_geometry_input(intersects) if intersects is not None else None
 
@@ -191,7 +198,7 @@ def search_herbie(
                 [r.replace(tzinfo=None) for r in runs],
                 model=model,
                 product=product,
-                fxx=[fxx],  # FastHerbie requires a list of lead times
+                fxx=fxx_list,
                 priority=priority,
                 max_threads=max_threads,
                 **extra_kwargs,
@@ -214,6 +221,7 @@ def search_herbie(
 
         for H, inventory in _fetch_inventories(valid, combined_regex, max_threads):
             run = pd.Timestamp(H.date).tz_localize("UTC")
+            lead = int(H.fxx)
 
             inventory = inventory.copy()
             inventory["reference_time"] = pd.to_datetime(
@@ -231,7 +239,7 @@ def search_herbie(
                 rows.append(
                     {
                         "id": (
-                            f"{model}-{run:%Y%m%dT%H}-f{fxx:02d}-"
+                            f"{model}-{run:%Y%m%dT%H}-f{lead:02d}-"
                             f"{int(rec['grib_message']):04d}-{slug.lower()}"
                         ),
                         "collection": model,
@@ -249,7 +257,7 @@ def search_herbie(
                         "forecast_time": str(rec.get("forecast_time", "")),
                         "search_this": str(rec.get("search_this", "")),
                         "model_run": run,
-                        "fxx": fxx,
+                        "fxx": lead,
                         "product": H.product,
                     }
                 )
