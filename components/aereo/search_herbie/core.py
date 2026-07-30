@@ -21,7 +21,7 @@ HTTP range requests to extract individual variables.
 from __future__ import annotations
 
 import re
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, time, timedelta, timezone
 from pathlib import Path
 from typing import Any, Mapping, Sequence, cast
 
@@ -90,7 +90,9 @@ def search_herbie(
             :mod:`aereo.search_herbie.domains`) or left null for unknown
             models.
         start_datetime: Start of the model-run temporal window.
-        end_datetime: End of the model-run temporal window.
+        end_datetime: End of the model-run temporal window. A midnight value
+            (e.g. a date-only string like ``"2025-11-01"``) is inclusive of
+            the whole day, mirroring STAC date semantics.
         product: Herbie product (e.g. ``"sfc"`` for HRRR). ``None`` uses the
             model's default product.
         fxx: Forecast lead time in hours.
@@ -120,6 +122,11 @@ def search_herbie(
         start_datetime = start_datetime.replace(tzinfo=timezone.utc)
     if end_datetime.tzinfo is None:
         end_datetime = end_datetime.replace(tzinfo=timezone.utc)
+
+    # A midnight end (e.g. a date-only string like "2025-11-01") means the
+    # whole day, mirroring STAC date semantics.
+    if end_datetime.time() == time.min:
+        end_datetime += timedelta(days=1) - timedelta(microseconds=1)
 
     runs = _run_datetimes(start_datetime, end_datetime, run_interval_hours)
     extra_kwargs = dict(herbie_kwargs or {})

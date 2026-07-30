@@ -110,6 +110,32 @@ def test_search_herbie_results(mock_herbie_cls):
 
 
 @patch("aereo.search_herbie.core.Herbie")
+def test_search_herbie_midnight_end_is_day_inclusive(mock_herbie_cls):
+    """A date-only (midnight) end covers the whole day, mirroring STAC
+    date semantics: with 6-hourly runs, a single-date window queries the
+    00/06/12/18Z runs but not the next day's 00Z."""
+    mock_herbie_cls.return_value = _mock_herbie(_inventory_df())
+
+    gdf = search_herbie(
+        collections=["gfs"],
+        intersects=None,
+        start_datetime=datetime(2024, 1, 1, tzinfo=timezone.utc),
+        end_datetime=datetime(2024, 1, 1, tzinfo=timezone.utc),
+        run_interval_hours=6,
+    )
+
+    assert mock_herbie_cls.call_count == 4
+    queried_runs = sorted(call.args[0] for call in mock_herbie_cls.call_args_list)
+    assert queried_runs == [
+        datetime(2024, 1, 1, 0),
+        datetime(2024, 1, 1, 6),
+        datetime(2024, 1, 1, 12),
+        datetime(2024, 1, 1, 18),
+    ]
+    assert len(gdf) == 8  # 4 runs x 2 inventory rows
+
+
+@patch("aereo.search_herbie.core.Herbie")
 def test_search_herbie_passes_regex_to_inventory(mock_herbie_cls):
     mock_herbie_cls.return_value = _mock_herbie(_inventory_df())
 
