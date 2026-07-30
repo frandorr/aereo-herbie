@@ -80,8 +80,24 @@ def test_crop_to_bbox_2d_lonlat():
     assert cropped.sizes["y"] < ds.sizes["y"]
     assert cropped.sizes["x"] < ds.sizes["x"]
     lon = (cropped["longitude"] + 180) % 360 - 180
-    assert float(lon.min()) >= -105.5
-    assert float(lon.max()) <= -104.5
+    # Pixels intersecting the bbox are kept: centers may lie up to half a
+    # grid cell outside the bbox.
+    assert float(lon.min()) >= -105.5 - 0.12
+    assert float(lon.max()) <= -104.5 + 0.12
+
+
+def test_crop_to_bbox_1d_coarse_grid_pads_half_cell():
+    """A small AOI on a coarse 1D grid must not collapse to a single row."""
+    lats = np.arange(-40.0, -30.0, 0.25)
+    lons = np.arange(295.0, 305.0, 0.25)
+    ds = xr.Dataset(
+        {"t2m": (("latitude", "longitude"), np.ones((len(lats), len(lons))))},
+        coords={"latitude": lats, "longitude": lons},
+    )
+    # Strictly inside the bbox there is exactly one lat center (-36.25).
+    cropped = _crop_to_bbox(ds, (-61.47, -36.47, -60.72, -36.11))
+    assert cropped.sizes["latitude"] >= 3
+    assert cropped.sizes["longitude"] >= 3
 
 
 def test_combine_datasets_concatenates_runs():

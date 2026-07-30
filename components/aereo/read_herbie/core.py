@@ -17,6 +17,7 @@ from __future__ import annotations
 import re
 from typing import TYPE_CHECKING, Any, Iterable
 
+import numpy as np
 import pandas as pd
 import xarray as xr
 from herbie import Herbie
@@ -114,6 +115,16 @@ def _lonlat_names(ds: xr.Dataset) -> tuple[str, str] | None:
     return None
 
 
+def _half_resolution(values: np.ndarray, axis: int = 0) -> float:
+    """Half the median grid spacing of *values* along *axis* (pixel half-extent)."""
+    if values.shape[axis] < 2:
+        return 0.0
+    diffs = np.abs(np.diff(values.astype(float), axis=axis))
+    if diffs.size == 0 or not np.isfinite(diffs).any():
+        return 0.0
+    return float(np.nanmedian(diffs)) / 2.0
+
+
 def _crop_to_bbox(ds: xr.Dataset, bbox: tuple[float, float, float, float]) -> xr.Dataset:
     """Crop a dataset to a WGS84 ``(xmin, ymin, xmax, ymax)`` bounding box.
 
@@ -121,6 +132,11 @@ def _crop_to_bbox(ds: xr.Dataset, bbox: tuple[float, float, float, float]) -> xr
     HRRR's Lambert conformal) latitude/longitude coordinates. Longitudes are
     normalized to the -180..180 convention before masking. The antimeridian
     is not handled specially.
+
+    Pixels are kept when their centers fall within the bbox expanded by half
+    a grid cell (pixel-extent semantics: pixels *intersecting* the bbox are
+    retained). This also avoids degenerate single-cell outputs when cropping
+    a coarse grid to a small AOI.
     """
     names = _lonlat_names(ds)
     if names is None:
@@ -128,12 +144,22 @@ def _crop_to_bbox(ds: xr.Dataset, bbox: tuple[float, float, float, float]) -> xr
         return ds
     lat_name, lon_name = names
     xmin, ymin, xmax, ymax = bbox
-    lon = (ds[lon_name] + 180) % 360 - 180
+
+    lat_coord = ds[lat_name]
+    lon_coord = ds[lon_name]
+    if lat_coord.ndim == 1 and lon_coord.ndim == 1:
+        pad_y = _half_resolution(lat_coord.values)
+        pad_x = _half_resolution(lon_coord.values)
+    else:
+        pad_y = _half_resolution(lat_coord.values, axis=0)
+        pad_x = _half_resolution(lon_coord.values, axis=1)
+
+    lon = (lon_coord + 180) % 360 - 180
     mask = (
-        (ds[lat_name] >= ymin)
-        & (ds[lat_name] <= ymax)
-        & (lon >= xmin)
-        & (lon <= xmax)
+        (lat_coord >= ymin - pad_y)
+        & (lat_coord <= ymax + pad_y)
+        & (lon >= xmin - pad_x)
+        & (lon <= xmax + pad_x)
     )
     return ds.where(mask.compute(), drop=True)
 
