@@ -191,7 +191,7 @@ def search_herbie(
                 [r.replace(tzinfo=None) for r in runs],
                 model=model,
                 product=product,
-                fxx=fxx,
+                fxx=[fxx],  # FastHerbie requires a list of lead times
                 priority=priority,
                 max_threads=max_threads,
                 **extra_kwargs,
