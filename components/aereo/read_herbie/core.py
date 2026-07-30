@@ -54,6 +54,25 @@ def _exact_search_regex(search_terms: Iterable[str]) -> str | None:
     return "|".join(re.escape(t) for t in dict.fromkeys(terms))
 
 
+def _as_single_dataset(result: Any) -> xr.Dataset:
+    """Normalize an ``H.xarray`` return value to a single ``xr.Dataset``.
+
+    Herbie groups GRIB messages by compatible grids and returns a *list* of
+    datasets (e.g. 2 m temperature and 10 m winds land in separate datasets
+    because of their different level types). Merge them so downstream steps
+    always see one dataset.
+    """
+    if isinstance(result, xr.Dataset):
+        return result
+    datasets = [ds for ds in result if isinstance(ds, xr.Dataset)]
+    if not datasets:
+        raise ValueError("H.xarray returned no datasets.")
+    merged = datasets[0]
+    for ds in datasets[1:]:
+        merged = merged.merge(ds, compat="override", join="outer")
+    return merged
+
+
 def _read_group(
     key: dict[str, Any],
     group: GeoDataFrame[AssetSchema],
@@ -84,7 +103,7 @@ def _read_group(
         run=str(run),
         n_messages=len(group),
     )
-    return H.xarray(search, remove_grib=remove_grib, **xarray_kwargs)
+    return _as_single_dataset(H.xarray(search, remove_grib=remove_grib, **xarray_kwargs))
 
 
 def _lonlat_names(ds: xr.Dataset) -> tuple[str, str] | None:

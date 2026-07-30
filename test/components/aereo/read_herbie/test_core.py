@@ -130,6 +130,30 @@ def test_read_herbie_multiple_runs_concat(mock_herbie_cls):
     assert ds.sizes["time"] == 2
 
 
+@patch("aereo.read_herbie.core.Herbie")
+def test_read_herbie_merges_xarray_list(mock_herbie_cls):
+    """Herbie returns a list of datasets (one per compatible grid); the
+    reader must merge them instead of passing the list downstream."""
+    t2m = _fake_hrrr_dataset()
+    winds = xr.Dataset(
+        {"u10": (("y", "x"), np.ones((10, 10))), "v10": (("y", "x"), np.ones((10, 10)))},
+        coords={
+            "y": np.arange(10),
+            "x": np.arange(10),
+            "latitude": t2m["latitude"],
+            "longitude": t2m["longitude"],
+            "time": pd.Timestamp("2024-01-01"),
+        },
+    )
+    mock_herbie_cls.return_value.xarray.return_value = [t2m, winds]
+    task = _task(_assets_df())
+
+    ds = read_herbie(task, crop_to_bbox=False)
+
+    assert isinstance(ds, xr.Dataset)
+    assert set(ds.data_vars) == {"t2m", "u10", "v10"}
+
+
 def test_read_herbie_empty_assets_raises():
     # ExtractionTask itself enforces non-empty assets at construction time.
     assets = _assets_df().iloc[0:0]
